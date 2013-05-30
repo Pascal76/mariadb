@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91 2012/01/18 16:49:12 mgrennan Exp $
+# $Id: mytop,v 1.91-maria1 2013/05/14 12:57:12 mgrennan Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a";
+$main::VERSION = "1.91a-maria1";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -1298,6 +1298,10 @@ sub GetData()
             if ($config{fullqueries})
             {
                 $smInfo = $thread->{Info};
+		if (length($smInfo) > $free)
+		{
+			$lines_left -= int((length($smInfo) - $free)/$width) + 1;
+		}
             } else {
                 $smInfo = substr $thread->{Info}, 0, $free;
             }
@@ -1310,6 +1314,9 @@ sub GetData()
         {
             $smInfo = "";
         }
+
+        $lines_left--;
+	last if $lines_left < 0;
 
         if ($HAS_COLOR)
         {
@@ -1325,11 +1332,6 @@ sub GetData()
             $thread->{Time}, $thread->{Progress}, $thread->{Command}, $thread->{State}, $smInfo;
 
         print RESET() if $HAS_COLOR;
-
-        $lines_left--;
-
-        last if $lines_left == 0;
-
     }
 
 }
