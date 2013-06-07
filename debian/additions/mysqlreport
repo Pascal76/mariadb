@@ -1539,7 +1539,7 @@ format ROWS =
 __ Rows ________________________________________________________________
 Rows        @>>>>>>>>    @>>>>>/s
 make_short($rows), t($rows)
-  Use index @>>>>>>>>    @>>>>>/s  %Index: @>>>>>
+  Using idx @>>>>>>>>    @>>>>>/s  %Index: @>>>>>
 make_short($rows_using_indexes), t($rows_using_indexes), perc($rows_using_indexes,$rows)
 Rows/question @>>>>>>
 make_short($rows/$questions)
