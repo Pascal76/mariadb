@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria9 May 29 2013
+# mysqlreport v3.5-maria10 June 7 2013
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
@@ -48,6 +48,7 @@ my (%stats_present, %stats_past); # For relative reports
 my ($pagecache_read_ratio, $pagecache_write_ratio, $pagecache_block_size, $pagecache_buffer_used, $pagecache_buffer_usage); # AriaDB pagecache stats
 my ($binlog_cache_ratio, $binlog_stmt_cache_ratio); # binary log cache
 my $dbms;
+my ($rows, $rows_using_indexes);
 
 GetOptions (
    \%op,
@@ -188,7 +189,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria9 May 29 2013
+mysqlreport v3.5-maria10 June 7 2013
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -669,6 +670,7 @@ sub set_myisam_vals
 {
    print "set_myisam_vals\n" if $op{debug};
 
+# should be moved elsewere
    $questions = $stats{'Questions'};
 
    $key_read_ratio = sprintf "%.2f",
@@ -855,6 +857,7 @@ sub write_report
    $~ = 'SLOW_DMS', write;
    write_DMS();
    write_Com();
+   write_Rows();
    $~ = 'SAS', write; 
    write_qcache(); 
    $~ = 'REPORT_END', write;
@@ -1181,6 +1184,17 @@ sub write_Aria
    if($pagecache_buffer_usage != -1) { $~ = 'PAGECACHE_BUFF_USAGE', write }
 
    $~ = 'PAGECACHE_RATIOS';
+   write;
+}
+
+sub write_Rows
+{
+   print "write_Rows\n" if $op{debug};
+
+   $rows_using_indexes = $stats{'Handler_read_first'} + $stats{'Handler_read_key'} + $stats{'Handler_read_next'} + $stats{'Handler_read_prev'};
+   $rows = $rows_using_indexes + $stats{'Handler_read_rnd'} + $stats{'Handler_read_rnd_next'} + $stats{'Sort_rows'};
+
+   $~ = 'ROWS';
    write;
 }
 
@@ -1518,4 +1532,15 @@ make_short($stats{Tokudb_CACHETABLE_SIZE_CURRENT}, 1), make_short($vars{tokudb_c
 make_short($stats{'Tokudb_CACHETABLE_MISS'}), t($stats{'Tokudb_CACHETABLE_MISS'})
   Evictions   @>>>>>>    @>>>>>/s
 make_short($stats{'Tokudb_CACHETABLE_EVICTIONS'}), t($stats{'Tokudb_CACHETABLE_EVICTIONS'})
+.
+
+format ROWS =
+
+__ Rows ________________________________________________________________
+Rows        @>>>>>>>>    @>>>>>/s
+make_short($rows), t($rows)
+  Use index @>>>>>>>>    @>>>>>/s  %Index: @>>>>>
+make_short($rows_using_indexes), t($rows_using_indexes), perc($rows_using_indexes,$rows)
+Rows/question @>>>>>>
+make_short($rows/$questions)
 .
