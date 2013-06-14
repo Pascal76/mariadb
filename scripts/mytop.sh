@@ -1179,7 +1179,7 @@ sub GetData()
 
     $lines_left -= 2;
 
-    my $proc_cmd = "show full processlist";
+    my $proc_cmd = "SHOW FULL PROCESSLIST; /* mytop */";
 
     my @data = Hashes($proc_cmd);
 
