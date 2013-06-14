@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91-maria1 2013/05/14 12:57:12 mgrennan Exp $
+# $Id: mytop,v 1.91a-maria2 2013/06/14 10:13:43 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria1";
+$main::VERSION = "1.91a-maria2";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -1226,9 +1226,9 @@ sub GetData()
 	$thread->{State}   ||= "";
 	$thread->{Progress} ||= 0;
 
-	## alter double hyphen comments so they don't break 
+	## alter double hyphen comments so they don't break
 	## the query when newlines are removed - http://freshmeat.net/users/jerjones
-	$thread->{Info} =~ s~\s--(.*)$~ /* $1 */ ~mg; 
+	$thread->{Info} =~ s~\s--(.*)$~ /* $1 */ ~mg;
 
         ## Normalize spaces -- mostly disabled for now.  This can
         ## break EXPLAIN if you try to explain a mangled query.  It
@@ -1239,8 +1239,8 @@ sub GetData()
 
         if (1)
         {
-            ## remove newlines and carriage returns
-            $thread->{Info} =~ s/[\n\r]//g;
+            ## replace newlines and carriage returns with a space
+            $thread->{Info} =~ s/[\n\r]/ /g;
 
             ## collpase whitespace
             $thread->{Info} =~ s/\s+/ /g;
