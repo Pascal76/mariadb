@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria2 2013/06/14 10:13:43 jweisbuch Exp $
+# $Id: mytop,v 1.91a-maria3 2013/06/21 11:54:32 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria2";
+$main::VERSION = "1.91a-maria3";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -1404,7 +1404,7 @@ sub GetCmdSummary()
     }
 
     # Variable_name and Value pairs come back...
-    my @data = Hashes("SHOW STATUS LIKE 'Com_%'");
+    my @data = Hashes("SHOW STATUS LIKE 'Com\\_%'");
     my %cmd_data;
     my %cmd_delta;
     my %cmd_pct;
