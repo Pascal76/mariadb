@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria3 2013/06/21 11:54:32 jweisbuch Exp $
+# $Id: mytop,v 1.91a-maria4 2013/06/27 10:23:21 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria3";
+$main::VERSION = "1.91a-maria4";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -136,8 +136,7 @@ if (-e $config)
     {
         while (<CFG>)
         {
-            next if /^\s*$/;  ## skip blanks
-            next if /^\s*#/;  ## skip comments
+            next if /^\s*($|#)/;  ## skip blanks and comments
 
             chomp;
 
@@ -303,8 +302,7 @@ foreach (@variables)
     }
     if ($_->{Variable_name} eq "have_query_cache")
     {
-#        if ($_->{Value} eq 'YES')
-	if ($_->{Value} eq 'YES' or $_->{Value} eq 'DEMAND')  # http://freshmeat.net/users/jerjones
+	if ($_->{Value} ne 'NO')
         {
             $have_query_cache = 1;
         }
@@ -920,10 +918,10 @@ sub GetData()
             }
         }
 
-	open L, "</proc/loadavg";
-	my $l = <L>;
-	close L;
-	chomp $l;
+#	open L, "</proc/loadavg";
+#	my $l = <L>;
+#	close L;
+#	chomp $l;
 
         $last_time = $now_time;
 
@@ -1237,17 +1235,16 @@ sub GetData()
         ## leading space removal
         $thread->{Info} =~ s/^\s*//;
 
-        if (1)
-        {
-            ## replace newlines and carriage returns with a space
-            $thread->{Info} =~ s/[\n\r]/ /g;
+        ## replace newlines and carriage returns with a space
+        $thread->{Info} =~ tr/\n\r/ /;
 
-            ## collpase whitespace
-            $thread->{Info} =~ s/\s+/ /g;
-        }
+        ## stripping other non printing control characters
+        $thread->{Info} =~ tr/\000-\037//;
+
+        ## collpase whitespace
+        $thread->{Info} =~ s/\s+/ /g;
 
         ## stow it in the cache
-
         $qcache{$thread->{Id}}  = $thread->{Info};
         $dbcache{$thread->{Id}} = $thread->{db};
         $ucache{$thread->{Id}}  = $thread->{User};
@@ -1316,7 +1313,10 @@ sub GetData()
         }
 
         $lines_left--;
-	last if $lines_left < 0;
+	if($lines_left < 0) {
+		print WHITE(), "-- Truncated query list --  ";
+		last;
+	}
 
         if ($HAS_COLOR)
         {
