@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria10 June 7 2013
+# mysqlreport v3.5-maria11 Jul 4 2013
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
@@ -142,6 +142,7 @@ my $have_aria_vals = 0;
 my $have_subquerycache_vals = 0;
 my $have_binlog_vals = 0;
 my $have_tokudb_engine = 0;
+my $use_thread_pool = 0;
 
 if(defined $op{'r'})
 {
@@ -174,7 +175,6 @@ else
    set_aria_vals() if $have_aria_vals;
    set_subquerycache_vals() if $have_subquerycache_vals;
    set_binlog_vals() if $have_binlog_vals;
-   set_tokudb_vals() if $have_tokudb_engine;
 
    write_report();
 }
@@ -189,7 +189,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria10 June 7 2013
+mysqlreport v3.5-maria11 Jul 4 2013
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -279,7 +279,6 @@ sub collect_reports
    set_aria_vals() if $have_aria_vals;
    set_subquerycache_vals() if $have_subquerycache_vals;
    set_binlog_vals() if $have_binlog_vals;
-   set_tokudb_vals() if $have_tokudb_engine;
 
    print "#\n# Beginning report, 0 0:0:0\n#\n";
 
@@ -422,7 +421,6 @@ sub relative_infile_report
       set_aria_vals() if $have_aria_vals;
       set_subquerycache_vals() if $have_subquerycache_vals;
       set_binlog_vals() if $have_binlog_vals;
-      set_tokudb_vals() if $have_tokudb_engine;
 
       print "#\n# Beginning report, 0 0:0:0\n#\n";
 
@@ -625,13 +623,20 @@ sub get_MySQL_version
       }
    }
 
-# A better test should be implemented
+#  A better test should be implemented
    $have_aria_vals = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'Aria';", undef)->[0][0];
    if(defined($have_aria_vals) && $have_aria_vals eq "YES")
    {
       print "MariaDB detected\n" if $op{debug};
       $have_aria_vals = 1;
       $dbms = "MariaDB";
+      $use_thread_pool = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'thread_handling';", undef)->[0][0];
+      if(defined($use_thread_pool) && $use_thread_pool eq "pool-of-threads") {
+        print "Thread pool is used\n" if $op{debug};
+        $use_thread_pool = 1;
+      } else {
+        $use_thread_pool = 0;
+      }
    } else {
       $have_aria_vals = 0;
       $dbms = "MySQL";
@@ -645,7 +650,7 @@ sub get_MySQL_version
    } else {
       $have_subquerycache_vals = 0;
    }
-   $have_binlog_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.session_variables WHERE VARIABLE_NAME = 'log_bin';", undef)->[0][0];
+   $have_binlog_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'log_bin';", undef)->[0][0];
    if(defined($have_binlog_vals) && $have_binlog_vals eq "ON")
    {
       print "Binary log is activated\n" if $op{debug};
@@ -711,7 +716,6 @@ sub set_myisam_vals
    $dms = $DMS_vals{SELECT} + $DMS_vals{INSERT} + $DMS_vals{REPLACE} + $DMS_vals{UPDATE} + $DMS_vals{DELETE};
 
    $slow_query_t = format_u_time($vars{long_query_time});
-
 }
 
 sub set_ib_vals
@@ -769,11 +773,6 @@ sub set_binlog_vals
 
    if(defined($stats{'Binlog_stmt_cache_use'}) && $stats{'Binlog_stmt_cache_use'} gt 0) { $binlog_stmt_cache_ratio = $stats{'Binlog_stmt_cache_disk_use'} / $stats{'Binlog_stmt_cache_use'}; }
    else { $binlog_stmt_cache_ratio = 0; }
-}
-
-sub set_tokudb_vals
-{
-   print "set_tokudb_vals\n" if $op{debug};
 }
 
 sub write_relative_report
@@ -840,7 +839,6 @@ sub write_relative_report
    set_aria_vals() if $have_aria_vals;
    set_subquerycache_vals() if $have_subquerycache_vals;
    set_binlog_vals() if $have_binlog_vals;
-   set_tokudb_vals() if $have_tokudb_engine;
 
    write_report();
 }
@@ -861,6 +859,13 @@ sub write_report
    $~ = 'SAS', write; 
    write_qcache(); 
    $~ = 'REPORT_END', write;
+   $~ = 'THREADS', write;
+   if($use_thread_pool)
+   {
+      $~ = 'THREADPOOL', write;
+   } else {
+      $~ = 'THREADPERCONNECTION', write;
+   }
    $~ = 'TAB', write;
 
    write_InnoDB() if $have_innodb_vals;
@@ -978,7 +983,7 @@ sub email_report # Email given report to $op{'email'}
    open SENDMAIL, "|/usr/sbin/sendmail -t";
    print SENDMAIL "From: mysqlreport\n";
    print SENDMAIL "To: $op{email}\n";
-   print SENDMAIL "Subject: MySQL status report on " . ($mycnf{'host'} || 'localhost') . "\n\n";
+   print SENDMAIL "Subject: $dbms status report on " . ($mycnf{'host'} || 'localhost') . "\n\n";
    print SENDMAIL `cat $report`;
    close SENDMAIL;
 }
@@ -1384,17 +1389,32 @@ File        @>>>>>>>>    @>>>>>/s
 make_short($stats{'Created_tmp_files'}), t($stats{'Created_tmp_files'})
 .
 
-format TAB =
+format THREADS =
 
 __ Threads _____________________________________________________________
 Running     @>>>>>>>> of @>>>>>
 $stats{'Threads_running'}, $stats{'Threads_connected'}
-Cached      @>>>>>>>> of @>>>>>      %Hit: @>>>>>
-$stats{'Threads_cached'}, $vars{'thread_cache_size'}, make_short(100 - perc($stats{'Threads_created'}, $stats{'Connections'}))
 Created     @>>>>>>>>    @>>>>>/s
 make_short($stats{'Threads_created'}), t($stats{'Threads_created'})
 Slow        @>>>>>>>>    @>>>>>/s
 $stats{'Slow_launch_threads'}, t($stats{'Slow_launch_threads'})
+.
+
+format THREADPERCONNECTION =
+Cached      @>>>>>>>> of @>>>>>      %Hit: @>>>>>
+$stats{'Threads_cached'}, $vars{'thread_cache_size'}, make_short(100 - perc($stats{'Threads_created'}, $stats{'Connections'}))
+.
+
+format THREADPOOL =
+Threadpool  @>>>>>>>> of @>>>>>     %Used: @>>>>>
+$stats{'Threadpool_threads'} + $stats{'Threadpool_idle_threads'}, $vars{'thread_pool_max_threads'}, make_short(perc($stats{'Threadpool_threads'} + $stats{'Threadpool_idle_threads'}, $vars{'thread_pool_max_threads'}))
+  Running   @>>>>>>>> of @>>>>>  %Running: @>>>>>
+$stats{'Threadpool_threads'}, $vars{'thread_pool_max_threads'}, make_short(perc($stats{'Threadpool_threads'}, $vars{'thread_pool_max_threads'}))
+  Idle      @>>>>>>>> of @>>>>>     %Idle: @>>>>>
+$stats{'Threadpool_idle_threads'}, $vars{'thread_pool_max_threads'}, make_short(perc($stats{'Threadpool_idle_threads'}, $vars{'thread_pool_max_threads'}))
+.
+
+format TAB =
 
 __ Aborted _____________________________________________________________
 Clients     @>>>>>>>>    @>>>>>/s
