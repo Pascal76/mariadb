@@ -642,7 +642,7 @@ sub get_MySQL_version
       $dbms = "MySQL";
    }
 
-   $have_subquerycache_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE REGEXP ',subquery_cache=on,|^subquery_cache=on,|,subquery_cache=on\$' AS SUBQUERY_CACHE FROM information_schema.session_variables WHERE VARIABLE_NAME = 'optimizer_switch';", undef)->[0][0];
+   $have_subquerycache_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE REGEXP ',subquery_cache=on,|^subquery_cache=on,|,subquery_cache=on\$' AS SUBQUERY_CACHE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'optimizer_switch';", undef)->[0][0];
    if(defined($have_subquerycache_vals) && $have_subquerycache_vals eq "1")
    {
       print "Subquery cache is activated\n" if $op{debug};
