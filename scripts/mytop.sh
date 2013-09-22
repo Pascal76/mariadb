@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria4 2013/06/27 10:23:21 jweisbuch Exp $
+# $Id: mytop,v 1.91a-maria5 2013/09/23 01:14:54 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria4";
+$main::VERSION = "1.91a-maria5";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -1157,12 +1157,31 @@ sub GetData()
     my $state= $width <= 80 ? 6 : int(min(6+($width-80)/3, 15));
     my $free = $width - $used - ($state - 6);
     my $format= "%9s %8s %15s %9s %6s %5s %6s %${state}s %-.${free}s\n";
+
+    my $proc_cmd;
+    my $time_format = "6d";
+    ## check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
+    my $has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
+    if ($has_is_processlist == 1) {
+	## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server)
+	my $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
+	if ($has_time_ms == 1) {
+	    ## will print the time with one decimal
+	    $time_format = "6.1f";
+	    $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME_MS/1000 > 365*86400 THEN Time ELSE TIME_MS/1000 END AS Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+	} else {
+	    $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+	}
+    } else {
+	$proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
+    }
+
     my $format2;
     if ($config{fullqueries})
     {
-         $format2 = "%9d %8.8s %15.15s %9.9s %6d %5.1f %6.6s %${state}.${state}s %-${free}s\n";
+         $format2 = "%9d %8.8s %15.15s %9.9s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}s\n";
     } else {
-         $format2 = "%9d %8.8s %15.15s %9.9s %6d %5.1f %6.6s %${state}.${state}s %-${free}.${free}s\n";
+         $format2 = "%9d %8.8s %15.15s %9.9s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}.${free}s\n";
     }
     print BOLD() if ($HAS_COLOR);
 
@@ -1171,13 +1190,11 @@ sub GetData()
 
     print RESET() if ($HAS_COLOR);
 
-    ##      Id User Host DB
+    ## Id User Host DB
     printf $format,
         '--','----','-------','--','----', '-', '---', '-----', '----------';
 
     $lines_left -= 2;
-
-    my $proc_cmd = "SHOW FULL PROCESSLIST; /* mytop */";
 
     my @data = Hashes($proc_cmd);
 
@@ -1715,7 +1732,7 @@ sub PrintHelp()
 {
     my $help = qq[
 Help for mytop version $main::VERSION by Jeremy D. Zawodny <${YELLOW}Jeremy\@Zawodny.com${RESET}>
- with updates by Mark Grennan <${YELLOW}mark\@grennan.com${RESET}>
+ with updates by Mark Grennan <${YELLOW}mark\@grennan.com${RESET}> and Jean Weisbuch <${YELLOW}jean\@phpnet.org${RESET}>
 
   ? - display this screen
   # - toggle short/long numbers (not yet implemented)
