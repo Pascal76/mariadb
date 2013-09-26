@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria5 2013/09/23 01:14:54 jweisbuch Exp $
+# $Id: mytop,v 1.91a-maria6 2013/09/26 18:47:34 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria5";
+$main::VERSION = "1.91a-maria6";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -1163,17 +1163,17 @@ sub GetData()
     ## check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
     my $has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
     if ($has_is_processlist == 1) {
-	## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server)
-	my $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
-	if ($has_time_ms == 1) {
-	    ## will print the time with one decimal
-	    $time_format = "6.1f";
-	    $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME_MS/1000 > 365*86400 THEN Time ELSE TIME_MS/1000 END AS Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
-	} else {
-	    $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
-	}
+        ## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server)
+        my $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
+        if ($has_time_ms == 1) {
+            ## will print the query time with one decimal if it has been running for less than 10k seconds
+            $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+            $time_format = "6.6s";
+        } else {
+            $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+        }
     } else {
-	$proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
+        $proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
     }
 
     my $format2;
