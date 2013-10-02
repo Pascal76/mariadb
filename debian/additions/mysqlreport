@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria12 Jul 4 2013
+# mysqlreport v3.5-maria13 Oct 2 2013
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
@@ -190,7 +190,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria12 Jul 4 2013
+mysqlreport v3.5-maria13 Oct 2 2013
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -1173,6 +1173,11 @@ sub write_InnoDB
 
    $~ = 'IB';
    write;
+   if($use_xtradb)
+   {
+      $~ = 'IB_XTRADB';
+      write;
+   }
 
    # Innodb_row_lock_ values were added in MySQL 5.0.3
    if($MySQL_version >= 50003)
@@ -1182,7 +1187,7 @@ sub write_InnoDB
    }
    if($use_xtradb)
    {
-      $~ = 'XTRADB';
+      $~ = 'IB_LOCK_XTRADB';
       write;
    }
 
@@ -1470,10 +1475,15 @@ $stats{'Innodb_buffer_pool_read_ahead_rnd'}, t($stats{'Innodb_buffer_pool_read_a
 #$stats{'Innodb_buffer_pool_read_ahead_seq'}, t($stats{'Innodb_buffer_pool_read_ahead_seq'})
 Writes      @>>>>>>>>    @>>>>>/s
 make_short($stats{'Innodb_buffer_pool_write_requests'}), t($stats{'Innodb_buffer_pool_write_requests'})
-Flushes     @>>>>>>>>    @>>>>>/s
-make_short($stats{'Innodb_buffer_pool_pages_flushed'}), t($stats{'Innodb_buffer_pool_pages_flushed'})
 Wait Free   @>>>>>>>>    @>>>>>/s   %Wait: @>>>>>
 $stats{'Innodb_buffer_pool_wait_free'}, t($stats{'Innodb_buffer_pool_wait_free'}), perc($stats{'Innodb_buffer_pool_wait_free'}, $stats{'Innodb_buffer_pool_write_requests'})
+Flushes     @>>>>>>>>    @>>>>>/s
+make_short($stats{'Innodb_buffer_pool_pages_flushed'}), t($stats{'Innodb_buffer_pool_pages_flushed'})
+.
+
+format IB_XTRADB =
+  LRU       @>>>>>>>>    @>>>>>/s  %Flush: @>>>>>
+make_short($stats{'Innodb_buffer_pool_pages_LRU_flushed'}), t($stats{'Innodb_buffer_pool_pages_LRU_flushed'}), perc($stats{'Innodb_buffer_pool_pages_LRU_flushed'}, $stats{'Innodb_buffer_pool_pages_flushed'})
 .
 
 format IB_LOCK =
@@ -1492,7 +1502,7 @@ $stats{'Innodb_row_lock_time_avg'}
 $stats{'Innodb_row_lock_time_max'}
 .
 
-format XTRADB =
+format IB_LOCK_XTRADB =
 Trx history  @>>>>>>>>
 make_short($stats{'Innodb_history_list_length'})
 .
