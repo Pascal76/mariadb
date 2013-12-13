@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria6 2013/09/26 18:47:34 jweisbuch Exp $
+# $Id: mytop,v 1.91a-maria7 2013/12/13 02:33:34 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria6";
+$main::VERSION = "1.91a-maria7";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -94,11 +94,13 @@ my %config = (
     pass          => '',
     port          => 3306,
     resolve       => 0,
-    slow	  => 10,	# slow query time
+    slow	  => 10,	## slow query time
     socket        => '',
-    sort          => 1,         # default or reverse sort ("s")
+    sort          => 1,		## default or reverse sort ("s")
     user          => 'root',
-    fullqueries   => 0
+    fullqueries   => 0,		## shows untruncated queries
+    usercol_width => 8,		## User column width
+    dbcol_width   => 9		## DB column width
 );
 
 my %qcache = ();    ## The query cache--used for full query info support.
@@ -115,7 +117,7 @@ my $CLEAR = $WIN ? '': `clear`;
 my $RM_RESET   = 0;
 my $RM_NOBLKRD = 3; ## using 4 traps Ctrl-C :-(
 
-# Add options from .my.cnf first
+## Add options from .my.cnf first
 
 my $my_print_defaults;
 if (!defined($my_print_defaults=my_which("my_print_defaults")))
@@ -174,7 +176,9 @@ GetOptions(
     "mode|m=s"            => \$config{mode},
     "slow=i"		  => \$config{slow},
     "sort=s"              => \$config{sort},
-    "fullqueries|L!"      => \$config{fullqueries}
+    "fullqueries|L!"      => \$config{fullqueries},
+    "usercol_width=i"     => \$config{usercol_width},
+    "dbcol_width=i"       => \$config{dbcol_width}
 );
 
 ## User may have put the port with the host.
@@ -288,7 +292,7 @@ my $db_release;
 my $server="MySQL";
 my $have_query_cache;
 
-my @variables = Hashes("show variables");
+my @variables = Hashes("SHOW VARIABLES");
 
 foreach (@variables)
 {
@@ -436,7 +440,7 @@ while (1)
 
     if ($key eq 'C')
     {
-	if ( $HAS_COLOR ) 
+	if ( $HAS_COLOR )
         {
 	    $HAS_COLOR = 0;
 	}
@@ -523,7 +527,7 @@ while (1)
 
     if ($key eq 'E')
     {
-	my($data) = Hashes('SHOW SLAVE STATUS');
+	my($data) = Hashes('SHOW /*mytop*/ SLAVE STATUS');
 	Clear();
 	print "Error is: $data->{Last_Error}\n";
         print RED(), "-- paused. press any key to resume --", RESET();
@@ -765,6 +769,38 @@ while (1)
         }
     }
 
+    ## w - Change columns width
+
+    if ($key eq 'w')
+    {
+        ReadMode($RM_RESET);
+        print RED(), "Width for the 'User' column (the actual value is ".$config{usercol_width}."): ";
+        my $readWidth = ReadLine(0);
+        chomp($readWidth);
+        if ($readWidth ne "" && $readWidth > 4 && $readWidth < 60)
+        {
+            $config{usercol_width} = $readWidth;
+        }
+        elsif ($readWidth ne "")
+        {
+            print RED(), "-- Invalid value ($readWidth), the previous value has been kept, press a key to resume --";
+            ReadKey(0);
+        }
+        print RESET(), RED(), "Width for the 'DB' column (the actual value is ".$config{dbcol_width}."): ", RESET();
+        $readWidth = ReadLine(0);
+        chomp($readWidth);
+        if ($readWidth ne "" && $readWidth > 2 && $readWidth < 60) {
+            $config{dbcol_width} = $readWidth
+        }
+        elsif ($readWidth ne "")
+        {
+            print RED(), "-- Invalid value ($readWidth), the previous value has been kept, press a key to resume --", RESET();
+            ReadKey(0);
+        }
+        undef $readWidth;
+        ReadMode($RM_NOBLKRD);
+        next;
+    }
 }
 
 ReadMode($RM_RESET) unless $config{batchmode};
@@ -816,13 +852,13 @@ sub GetData()
     if ($config{header})
     {
         my @recs = "";
-        if ( $db_release > 4 ) 
+        if ( $db_release > 4 )
 	{
-            @recs = Hashes("show global status");
-	} 
-	else 
+            @recs = Hashes("SHOW /*mytop*/ GLOBAL STATUS");
+	}
+	else
 	{
-           @recs = Hashes("show status");
+           @recs = Hashes("SHOW /*mytop*/ STATUS");
 	}
 
         ## if the server died or we lost connectivity
@@ -974,7 +1010,7 @@ sub GetData()
         if ($t_delta)
         {
           my $q_diff = ( $STATUS{Questions} - $OLD_STATUS{Questions} );
-#          print("q_diff: $STATUS{Questions} - $OLD_STATUS{Questions}  / $t_delta = $q_diff\n");
+#         print("q_diff: $STATUS{Questions} - $OLD_STATUS{Questions}  / $t_delta = $q_diff\n");
 
           printf(" Sorts: %5.0f qps now: %4.0f Slow qps: %3.1f  Threads: %4.0f (%4.0f/%4.0f) %02.0f/%02.0f/%02.0f/%02.0f\n",
 		 ( $STATUS{Sort_rows} - $OLD_STATUS{Sort_rows} ) / $t_delta, 
@@ -1086,7 +1122,7 @@ sub GetData()
 
 	$lines_left--;
 
-        printf(" ISAM Key Efficiency: %2.1f%%  Bps in/out: %5s/%5s   ",
+        printf(" MyISAM Key Cache Efficiency: %2.1f%%  Bps in/out: %5s/%5s   ",
                $cache_hits_percent,
                make_short($STATUS{Bytes_received} / $STATUS{Uptime} ),
                make_short($STATUS{Bytes_sent} / $STATUS{Uptime}));
@@ -1098,7 +1134,7 @@ sub GetData()
 
         $lines_left--;
 
-        my($data) = Hashes('show global variables like "read_only"');
+        my($data) = Hashes('SHOW /*mytop*/ GLOBAL VARIABLES LIKE "read_only"');
         if ($data->{Value} ne "OFF")
         {
             print RED() if ($HAS_COLOR) ;
@@ -1106,7 +1142,7 @@ sub GetData()
 	    RESET() if ($HAS_COLOR);
         }
 
-	($data) = Hashes('SHOW SLAVE STATUS');
+	($data) = Hashes('SHOW /*mytop*/ SLAVE STATUS');
 	if (defined($data->{Master_Host}))
         {
 	    if (defined($data->{Seconds_Behind_Master}))
@@ -1152,36 +1188,56 @@ sub GetData()
     ## Threads
     ##
 
-    my @sz   = (9, 8, 15, 9, 6, 5, 6, 8);
+    ## we specify a minimal value
+    if ($config{usercol_width} < 4) { $config{usercol_width} = 4; }
+    if ($config{dbcol_width} < 2)   { $config{dbcol_width}   = 2; }
+    my @sz   = (9, $config{usercol_width}, 15, $config{dbcol_width}, 6, 5, 6, 8);
     my $used = scalar(@sz) + Sum(@sz);
     my $state= $width <= 80 ? 6 : int(min(6+($width-80)/3, 15));
     my $free = $width - $used - ($state - 6);
-    my $format= "%9s %8s %15s %9s %6s %5s %6s %${state}s %-.${free}s\n";
+    my $format= "%9s %$config{usercol_width}s %15s %$config{dbcol_width}s %6s %5s %6s %${state}s %-.${free}s\n";
 
     my $proc_cmd;
     my $time_format = "6d";
     ## check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
     my $has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
-    if ($has_is_processlist == 1) {
-        ## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server)
+    if ($has_is_processlist == 1)
+        {
+        ## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server), if it is the case it will fetch the query time with decimal precision for queries that has been running for less than 10k seconds
         my $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
-        if ($has_time_ms == 1) {
-            ## will print the query time with one decimal if it has been running for less than 10k seconds
-            $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+        if ($has_time_ms == 1)
+            {
             $time_format = "6.6s";
-        } else {
+            ## check if the server has the STAGE column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB) to retreive query completion informations
+            ## to have a computed value of "Progress" like the "SHOW PROCESSLIST" one, you can use : "CASE WHEN Max_Stage < 2 THEN Progress ELSE (Stage-1)/Max_Stage*100+Progress/Max_Stage END AS Progress"
+            my $has_progress = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'STAGE';")->rows;
+            if ($has_progress == 1)
+            {
+                $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info, Progress, Stage, Max_Stage FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+            }
+            else
+            {
+                $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
+           }
+        }
+        else
+        {
             $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, Time, State, Info FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
         }
-    } else {
+    }
+    else
+    {
         $proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
     }
 
     my $format2;
     if ($config{fullqueries})
     {
-         $format2 = "%9d %8.8s %15.15s %9.9s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}s\n";
-    } else {
-         $format2 = "%9d %8.8s %15.15s %9.9s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}.${free}s\n";
+        $format2 = "%9d %$config{usercol_width}.$config{usercol_width}s %15.15s %$config{dbcol_width}.$config{dbcol_width}s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}s\n";
+    }
+    else
+    {
+        $format2 = "%9d %$config{usercol_width}.$config{usercol_width}s %15.15s %$config{dbcol_width}.$config{dbcol_width}s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}.${free}s\n";
     }
     print BOLD() if ($HAS_COLOR);
 
@@ -1225,7 +1281,7 @@ sub GetData()
             $thread->{Host} =~ s/:\d+$//;
 #	    my $host = $thread->{Host};
 	    my $host = gethostbyaddr(inet_aton($thread->{Host}), AF_INET);
-#            $host =~ s/^([^.]+).*/$1/;
+#           $host =~ s/^([^.]+).*/$1/;
             $thread->{Host} = $host;
         }
 
@@ -1261,11 +1317,19 @@ sub GetData()
         ## collpase whitespace
         $thread->{Info} =~ s/\s+/ /g;
 
+        ## put the first letter of the query uppercase for a better readability with long State strings
+        $thread->{Info} = ucfirst $thread->{Info};
+
         ## stow it in the cache
         $qcache{$thread->{Id}}  = $thread->{Info};
         $dbcache{$thread->{Id}} = $thread->{db};
         $ucache{$thread->{Id}}  = $thread->{User};
 
+        ## if we have Progress information and executing a multi-stage query, we show the actual stage and total of stages of the thread at the beginning of the State column
+        if ($thread->{Max_Stage} && $thread->{Max_Stage} > 1)
+        {
+            $thread->{State} = $thread->{Stage}."/".$thread->{Max_Stage}." ".$thread->{State};
+        }
     }
 
     ## Sort by idle time (closest thing to CPU usage I can think of).
@@ -1283,8 +1347,7 @@ sub GetData()
 
     foreach my $thread (@sorted)
     {
-        # Check to see if we can skip out.  We skip out if we know the
-        # given line doesn't match.
+        ## Check to see if we can skip out.  We skip out if we know the given line doesn't match.
 
         next if (($thread->{Command} eq "Sleep")
                  and
@@ -1303,7 +1366,7 @@ sub GetData()
         next if ($thread->{Host}  !~ $config{filter_host});
         next if ($thread->{State} !~ $config{filter_state});
 
-        # Otherwise, print.
+        ## Otherwise, print.
 
         my $smInfo;
 
@@ -1359,7 +1422,7 @@ my $questions;
 
 sub GetQPS()
 {
-    my($data) = Hashes('SHOW STATUS LIKE "Questions"');
+    my($data) = Hashes('SHOW /*mytop*/ STATUS LIKE "Questions"');
     my $num   = $data->{Value};
 
     if (not defined $questions) ## first time?
@@ -1391,7 +1454,7 @@ sub GetInnoDBStatus()
         }
     }
 
-    my @data = Hashes("SHOW INNODB STATUS");
+    my @data = Hashes("SHOW /*mytop*/ INNODB STATUS");
 
     open P, "|$config{pager}" or die "$!";
     print keys %{$data[0]};
@@ -1420,8 +1483,8 @@ sub GetCmdSummary()
         $width = 80;
     }
 
-    # Variable_name and Value pairs come back...
-    my @data = Hashes("SHOW STATUS LIKE 'Com\\_%'");
+    ## Variable_name and Value pairs come back...
+    my @data = Hashes("SHOW /*mytop*/ STATUS LIKE 'Com\\_%'");
     my %cmd_data;
     my %cmd_delta;
     my %cmd_pct;
@@ -1492,7 +1555,7 @@ sub GetShowVariables()
         }
     }
 
-    my @rows = Hashes("SHOW VARIABLES");
+    my @rows = Hashes("SHOW /*mytop*/ VARIABLES");
 
     open P, "|$config{pager}" or die "$!";
 
@@ -1511,7 +1574,7 @@ sub GetShowVariables()
 sub GetShowStatus()
 {
     Clear() unless $config{batchmode};
-    my @rows = Hashes("SHOW STATUS");
+    my @rows = Hashes("SHOW /*mytop*/ STATUS");
 
     printf "%32s  %10s %10s   Toggle idle with 'i'\n", 'Counter', 'Total', 'Change';
     printf "%32s  %10s %10s\n", '-------', '-----', '------';
@@ -1543,7 +1606,7 @@ sub GetShowStatus()
 
             if (not $config{idle} and $value == $old)
             {
-                # filter unchanging stats, maybe
+                ## filter unchanging stats, maybe
                 print RESET();
                 next;
             }
@@ -1624,7 +1687,7 @@ sub StringOrRegex($)
     chomp $input;
     if (defined $input)
     {
-        # regex, strip /.../ and use via qr//
+        ## regex, strip /.../ and use via qr//
         if ($input =~ m{^/} and $input =~ m{/$})
         {
             $input =~ s{^/}{} if $config{filter_user};
@@ -1633,13 +1696,13 @@ sub StringOrRegex($)
         }
 
 
-        # reset to match anything
+        ## reset to match anything
         elsif ($input eq '')
         {
             $input = qr/.*/;
         }
 
-        # string, build a simple regex
+        ## string, build a simple regex
         else
         {
             $input =  '^' . $input . '$';
@@ -1647,7 +1710,7 @@ sub StringOrRegex($)
         }
     }
 
-    # reset to match anything
+    ## reset to match anything
     else
     {
         $input = qr/.*/;
@@ -1764,6 +1827,7 @@ Help for mytop version $main::VERSION by Jeremy D. Zawodny <${YELLOW}Jeremy\@Zaw
   : - enter a command (not yet implemented)
   ! - Skip an error that has stopped replications (at your own risk)
   L - show full queries (do not strip to terminal width)
+  w - ajust the User and DB columns width
 
 Base version from ${GREEN}http://www.mysqlfanboy.com/mytop${RESET}
 This version comes as part of the ${GREEN}MariaDB${RESET} distribution.
@@ -1799,7 +1863,6 @@ sub make_short($)
     while ($number > 1_025) { $number /= 1024; $n++; };
     return sprintf "%.1f%s", $number, ('','k','M','G', 'T')[$n];
 }
-
 
 
 ## Run a query and return the records has an array of hashes.
@@ -1877,8 +1940,7 @@ sub my_which
 
   return $command if (-f $command && -x $command);
 
-  # Check first if this is a source distribution, then if this binary
-  # distribution and last in the path
+  ## Check first if this is a source distribution, then if this binary distribution and last in the path
 
   push @paths, "./extra";
   push @paths, $path_for_script;
