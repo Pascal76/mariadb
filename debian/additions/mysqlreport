@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria13 Oct 2 2013
+# mysqlreport v3.5-maria14 Dec 22 2013
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
@@ -190,7 +190,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria13 Oct 2 2013
+mysqlreport v3.5-maria14 Dec 22 2013
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -527,7 +527,7 @@ sub read_infile
             else { print "read_infile: ignore '$_'\n" if $op{debug}; }
 
             last if $1 eq 'Uptime';  # exit while() if end of status values
-            $_ = <INFILE>; # otherwise, read next line of status values
+            $_ = <INFILE>;  # otherwise, read next line of status values
          }
       }
       elsif($1 eq 'back_log')  # system variable values
@@ -545,7 +545,7 @@ sub read_infile
             else { print "read_infile: ignore '$_'\n" if $op{debug}; }
 
             last if $1 eq 'wait_timeout';  # exit while() if end of vars
-            $_ = <INFILE>; # otherwise, read next line of vars
+            $_ = <INFILE>;  # otherwise, read next line of vars
          }
       }
       elsif($1 eq '=')  # old style, manually added system variable values
@@ -562,7 +562,7 @@ sub read_infile
             }
             else { print "read_infile: ignore '$_'\n" if $op{debug}; }
 
-            $_ = <INFILE>; # otherwise, read next line of old vars
+            $_ = <INFILE>;  # otherwise, read next line of old vars
          }
 
          redo;
@@ -592,7 +592,13 @@ sub get_MySQL_version
 
    if($op{'infile'} || $relative_infiles)
    {
-      ($major, $minor, $patch) = ($vars{'version'} =~ /(\d{1,2})\.(\d{1,2})\.(\d{1,2})/);
+      ($major, $minor, $patch) = ($vars{'version'} =~ /^(\d{1,2})\.(\d{1,2})\.(\d{1,2})/);
+      if($vars{'version'} =~ /^\d{1,2}\.\d{1,2}\.\d{1,2}-MariaDB/) {
+        print "MariaDB detected\n" if $op{debug};
+        $dbms = "MariaDB";
+      } else {
+        $dbms = "MySQL";
+      }
    }
    else
    {
@@ -602,9 +608,19 @@ sub get_MySQL_version
       $query->execute();
       @row = $query->fetchrow_array();
       $query->finish();
-      ($major, $minor, $patch) = ($row[1] =~ /(\d{1,2})\.(\d{1,2})\.(\d{1,2})/);
+      ($major, $minor, $patch) = ($row[1] =~ /^(\d{1,2})\.(\d{1,2})\.(\d{1,2})/);
+      if($row[1] =~ /^\d{1,2}\.\d{1,2}\.\d{1,2}-MariaDB/)
+      {
+         print "MariaDB detected\n" if $op{debug};
+         $dbms = "MariaDB";
+      }
+      else
+      {
+         $dbms = "MySQL";
+      }
    }
 
+   # e.g.: 5.5.9 will be 50509 and 10.0.5 will be 100005
    $MySQL_version = sprintf("%d%02d%02d", $major, $minor, $patch);
 
    # Innodb_ status values were added in 5.0.2
@@ -624,33 +640,36 @@ sub get_MySQL_version
       }
    }
 
-#  A better test should be implemented
-   $have_aria_vals = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'Aria';", undef)->[0][0];
-   if(defined($have_aria_vals) && $have_aria_vals eq "YES")
-   {
-      print "MariaDB detected\n" if $op{debug};
-      $have_aria_vals = 1;
-      $dbms = "MariaDB";
-      $use_thread_pool = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'thread_handling';", undef)->[0][0];
-      if(defined($use_thread_pool) && $use_thread_pool eq "pool-of-threads") {
-        print "Thread pool is used\n" if $op{debug};
-        $use_thread_pool = 1;
+   if($dbms eq "MariaDB") {
+      $have_aria_vals = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'Aria';", undef)->[0][0];
+      if(defined($have_aria_vals) && $have_aria_vals eq "YES")
+      {
+         print "Aria engine detected\n" if $op{debug};
+         $have_aria_vals = 1;
       } else {
-        $use_thread_pool = 0;
+         $have_aria_vals = 0;
       }
-   } else {
-      $have_aria_vals = 0;
-      $dbms = "MySQL";
+
+      # MariaDB 5.3+, activated by default since 5.3.2
+      $have_subquerycache_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE REGEXP ',subquery_cache=on,|^subquery_cache=on,|,subquery_cache=on\$' AS SUBQUERY_CACHE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'optimizer_switch';", undef)->[0][0];
+      if(defined($have_subquerycache_vals) && $have_subquerycache_vals eq "1")
+      {
+         print "Subquery cache is activated\n" if $op{debug};
+         $have_subquerycache_vals = 1;
+      } else {
+         $have_subquerycache_vals = 0;
+      }
    }
 
-   $have_subquerycache_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE REGEXP ',subquery_cache=on,|^subquery_cache=on,|,subquery_cache=on\$' AS SUBQUERY_CACHE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'optimizer_switch';", undef)->[0][0];
-   if(defined($have_subquerycache_vals) && $have_subquerycache_vals eq "1")
-   {
-      print "Subquery cache is activated\n" if $op{debug};
-      $have_subquerycache_vals = 1;
+   # MariaDB 5.5.21+ and Percona Server 5.5.30+ use the same thread pool implementation
+   $use_thread_pool = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'thread_handling';", undef)->[0][0];
+   if(defined($use_thread_pool) && $use_thread_pool eq "pool-of-threads") {
+      print "Thread pool is used\n" if $op{debug};
+      $use_thread_pool = 1;
    } else {
-      $have_subquerycache_vals = 0;
+      $use_thread_pool = 0;
    }
+
    $have_binlog_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'log_bin';", undef)->[0][0];
    if(defined($have_binlog_vals) && $have_binlog_vals eq "ON")
    {
@@ -660,8 +679,6 @@ sub get_MySQL_version
       $have_binlog_vals = 0;
    }
 
-#   $have_tokudb_engine = $dbh->selectall_arrayref("SELECT 1 FROM information_schema.plugins WHERE plugin_name = 'TokuDB' AND plugin_version >= 4 AND plugin_status = 'ACTIVE';", undef)->[0][0];
-#   if(defined($have_tokudb_engine) && $have_tokudb_engine eq "1")
    $have_tokudb_engine = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'TokuDB';", undef)->[0][0];
    if(defined($have_tokudb_engine) && ($have_tokudb_engine eq "YES" || $have_tokudb_engine eq "DEFAULT"))
    {
@@ -885,7 +902,7 @@ sub write_report
    write_TokuDB() if $have_tokudb_engine;
 }
 
-sub sec_to_dhms # Seconds to days hours:minutes:seconds
+sub sec_to_dhms # Seconds to days+hours:minutes:seconds
 {
    my $s = shift;
    my ($d, $h, $m) = (0, 0, 0);
@@ -907,7 +924,7 @@ sub sec_to_dhms # Seconds to days hours:minutes:seconds
    $m = int $s / 60;
    $s -= $m * 60;
    
-   return "$d $h:$m:$s";
+   return "$d+$h:$m:$s";
 }
 
 sub make_short
@@ -1255,8 +1272,7 @@ sub exit_tasks_and_cleanup
    }
    else
    {
-      if($WIN) { `del $tmpfile`;   }
-      else     { `rm -f $tmpfile`; }
+      unlink $tmpfile;
    }
 
    if(!$op{'infile'} && !$relative_infiles)
