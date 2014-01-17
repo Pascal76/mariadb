@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.91a-maria7 2013/12/13 02:33:34 jweisbuch Exp $
+# $Id: mytop,v 1.99-maria1 2014/01/17 02:17:21 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.91a-maria7";
+$main::VERSION = "1.99-maria1";
 my $path_for_script= dirname($0);
 
 $|=1;
@@ -100,7 +100,8 @@ my %config = (
     user          => 'root',
     fullqueries   => 0,		## shows untruncated queries
     usercol_width => 8,		## User column width
-    dbcol_width   => 9		## DB column width
+    dbcol_width   => 9,		## DB column width
+    hide_progress => 0		## hide the "%" column when available
 );
 
 my %qcache = ();    ## The query cache--used for full query info support.
@@ -178,7 +179,8 @@ GetOptions(
     "sort=s"              => \$config{sort},
     "fullqueries|L!"      => \$config{fullqueries},
     "usercol_width=i"     => \$config{usercol_width},
-    "dbcol_width=i"       => \$config{dbcol_width}
+    "dbcol_width=i"       => \$config{dbcol_width},
+    "hide_progress|a!"    => \$config{hide_progress}
 );
 
 ## User may have put the port with the host.
@@ -744,7 +746,7 @@ while (1)
         ReadKey(0);
     }
 
-    # Switch to show status mode
+    ## M - switch to show status mode
 
     if ($key eq 'M')
     {
@@ -769,7 +771,7 @@ while (1)
         }
     }
 
-    ## w - Change columns width
+    ## w - change columns width for the "User" and "Database" columns
 
     if ($key eq 'w')
     {
@@ -801,6 +803,25 @@ while (1)
         ReadMode($RM_NOBLKRD);
         next;
     }
+
+    ## a - progress column toggle (the column is only displayed if progress informations are available from the processlist)
+
+    if ($key eq 'a')
+    {
+        if ($config{hide_progress})
+        {
+            $config{hide_progress} = 0;
+            print RED(), "-- progress display ON --", RESET();
+            sleep 1;
+        }
+        else
+        {
+            $config{hide_progress} = 1;
+            print RED(), "-- progress display OFF --", RESET();
+            sleep 1;
+        }
+    }
+
 }
 
 ReadMode($RM_RESET) unless $config{batchmode};
@@ -1110,7 +1131,7 @@ sub GetData()
 		 $t_delta,
 		 ($STATUS{Rows_tmp_read} - $OLD_STATUS{Rows_tmp_read}) /
 		 $t_delta,
-		 ($STATUS{Handler_tmp_write} 
+		 ($STATUS{Handler_tmp_write}
 		  -$OLD_STATUS{Handler_tmp_write})/$t_delta,
 		 ($STATUS{Handler_tmp_update} -
 		  $OLD_STATUS{Handler_tmp_update})/$t_delta);
@@ -1188,17 +1209,10 @@ sub GetData()
     ## Threads
     ##
 
-    ## we specify a minimal value
-    if ($config{usercol_width} < 4) { $config{usercol_width} = 4; }
-    if ($config{dbcol_width} < 2)   { $config{dbcol_width}   = 2; }
-    my @sz   = (9, $config{usercol_width}, 15, $config{dbcol_width}, 6, 5, 6, 8);
-    my $used = scalar(@sz) + Sum(@sz);
-    my $state= $width <= 80 ? 6 : int(min(6+($width-80)/3, 15));
-    my $free = $width - $used - ($state - 6);
-    my $format= "%9s %$config{usercol_width}s %15s %$config{dbcol_width}s %6s %5s %6s %${state}s %-.${free}s\n";
-
     my $proc_cmd;
     my $time_format = "6d";
+    my $has_progress = 0;
+
     ## check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
     my $has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
     if ($has_is_processlist == 1)
@@ -1210,7 +1224,7 @@ sub GetData()
             $time_format = "6.6s";
             ## check if the server has the STAGE column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB) to retreive query completion informations
             ## to have a computed value of "Progress" like the "SHOW PROCESSLIST" one, you can use : "CASE WHEN Max_Stage < 2 THEN Progress ELSE (Stage-1)/Max_Stage*100+Progress/Max_Stage END AS Progress"
-            my $has_progress = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'STAGE';")->rows;
+            $has_progress = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'STAGE';")->rows;
             if ($has_progress == 1)
             {
                 $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info, Progress, Stage, Max_Stage FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
@@ -1230,25 +1244,61 @@ sub GetData()
         $proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
     }
 
-    my $format2;
+    ## we specify a minimal value for columns with a dynamic width
+    if ($config{usercol_width} < 4) { $config{usercol_width} = 4; }
+    if ($config{dbcol_width} < 2)   { $config{dbcol_width}   = 2; }
+
+    my @sz   = (9, $config{usercol_width}, 15, $config{dbcol_width}, 6, 6, 8);
+    if ($has_progress == 1 && !$config{hide_progress}) { push @sz, 5; };
+    my $used = scalar(@sz) + Sum(@sz);
+    undef(@sz);
+
+    ## if the terminal width <= 80, the state column will have a width of 6 chars else it will be between 6 and 15 chars depending on the terminal width
+    my $state= $width <= 80 ? 6 : int(min(6+($width-80)/3, 15));
+    ## $free = the number of chars between the beginning of the "Query" column and the end of the line
+    my $free = $width - $used - ($state - 6);
+    my $format= "%9s %$config{usercol_width}s %15s %$config{dbcol_width}s %6s ";
+    if ($has_progress == 1 && !$config{hide_progress}) { $format .= "%5s "; }
+    $format .= "%6s %${state}s %-.${free}s\n";
+
+    my $format2 = "%9d %$config{usercol_width}.$config{usercol_width}s %15.15s %$config{dbcol_width}.$config{dbcol_width}s %${time_format} ";
+    if ($has_progress == 1 && !$config{hide_progress}) { $format2 .= "%5.1f "; }
+    $format2 .= "%6.6s %${state}.${state}s ";
     if ($config{fullqueries})
     {
-        $format2 = "%9d %$config{usercol_width}.$config{usercol_width}s %15.15s %$config{dbcol_width}.$config{dbcol_width}s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}s\n";
+        $format2 .= "%-${free}s\n";
     }
     else
     {
-        $format2 = "%9d %$config{usercol_width}.$config{usercol_width}s %15.15s %$config{dbcol_width}.$config{dbcol_width}s %${time_format} %5.1f %6.6s %${state}.${state}s %-${free}.${free}s\n";
+        $format2 .= "%-${free}.${free}s\n";
     }
+
     print BOLD() if ($HAS_COLOR);
 
-    printf $format,
-        'Id','User','Host/IP','DB','Time', '%', 'Cmd', 'State', 'Query';
+    if ($has_progress == 1 && !$config{hide_progress})
+    {
+        printf $format,
+            'Id','User','Host/IP','DB','Time', '%', 'Cmd', 'State', 'Query';
+    }
+    else
+    {
+        printf $format,
+            'Id','User','Host/IP','DB','Time', 'Cmd', 'State', 'Query';
+    }
 
     print RESET() if ($HAS_COLOR);
 
     ## Id User Host DB
-    printf $format,
-        '--','----','-------','--','----', '-', '---', '-----', '----------';
+    if ($has_progress == 1 && !$config{hide_progress})
+    {
+        printf $format,
+            '--','----','-------','--','----', '-', '---', '-----', '----------';
+    }
+    else
+    {
+        printf $format,
+            '--','----','-------','--','----', '---', '-----', '----------';
+    }
 
     $lines_left -= 2;
 
@@ -1326,7 +1376,7 @@ sub GetData()
         $ucache{$thread->{Id}}  = $thread->{User};
 
         ## if we have Progress information and executing a multi-stage query, we show the actual stage and total of stages of the thread at the beginning of the State column
-        if ($thread->{Max_Stage} && $thread->{Max_Stage} > 1)
+        if ($has_progress == 1 && $thread->{Max_Stage} && $thread->{Max_Stage} > 1)
         {
             $thread->{State} = $thread->{Stage}."/".$thread->{Max_Stage}." ".$thread->{State};
         }
@@ -1375,11 +1425,13 @@ sub GetData()
             if ($config{fullqueries})
             {
                 $smInfo = $thread->{Info};
-		if (length($smInfo) > $free)
-		{
-			$lines_left -= int((length($smInfo) - $free)/$width) + 1;
-		}
-            } else {
+                if (length($smInfo) > $free)
+                {
+                    $lines_left -= int((length($smInfo) - $free)/$width) + 1;
+                }
+            }
+            else
+            {
                 $smInfo = substr $thread->{Info}, 0, $free;
             }
         }
@@ -1393,7 +1445,7 @@ sub GetData()
         }
 
         $lines_left--;
-	if($lines_left < 0) {
+	if ($lines_left < 0) {
 		print WHITE(), "-- Truncated query list --  ";
 		last;
 	}
@@ -1403,13 +1455,22 @@ sub GetData()
             print YELLOW() if $thread->{Command} eq 'Query';
             print WHITE()  if $thread->{Command} eq 'Sleep';
             print GREEN()  if $thread->{Command} eq 'Connect';
-            print BOLD() if $thread->{Time} > $config{slow};
+            print BOLD()   if $thread->{Time} > $config{slow};
 	    print MAGENTA() if $thread->{Time} > $config{long};
         }
 
-        printf $format2,
-            $thread->{Id}, $thread->{User}, $thread->{Host}, $thread->{db},
-            $thread->{Time}, $thread->{Progress}, $thread->{Command}, $thread->{State}, $smInfo;
+        if ($has_progress == 1 && !$config{hide_progress})
+        {
+            printf $format2,
+                $thread->{Id}, $thread->{User}, $thread->{Host}, $thread->{db},
+                $thread->{Time}, $thread->{Progress}, $thread->{Command}, $thread->{State}, $smInfo;
+        }
+        else
+        {
+            printf $format2,
+                $thread->{Id}, $thread->{User}, $thread->{Host}, $thread->{db},
+                $thread->{Time}, $thread->{Command}, $thread->{State}, $smInfo;
+        }
 
         print RESET() if $HAS_COLOR;
     }
@@ -1828,6 +1889,7 @@ Help for mytop version $main::VERSION by Jeremy D. Zawodny <${YELLOW}Jeremy\@Zaw
   ! - Skip an error that has stopped replications (at your own risk)
   L - show full queries (do not strip to terminal width)
   w - ajust the User and DB columns width
+  a - toggle the progress column
 
 Base version from ${GREEN}http://www.mysqlfanboy.com/mytop${RESET}
 This version comes as part of the ${GREEN}MariaDB${RESET} distribution.
