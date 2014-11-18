@@ -1,11 +1,11 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria14 Dec 22 2013
+# mysqlreport v3.5-maria15 Nov 18 2014
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 # Copyright 2006-2008 Daniel Nichter
-# Copyright 2012-2013 Jean Weisbuch
+# Copyright 2012-2014 Jean Weisbuch
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -190,7 +190,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria14 Dec 22 2013
+mysqlreport v3.5-maria15 Nov 18 2014
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -453,7 +453,8 @@ sub get_vals
       $query = $dbh->prepare("SHOW STATUS;");
    }
    $query->execute();
-   while(@row = $query->fetchrow_array()) { $stats{$row[0]} = $row[1]; }
+   # To avoid problems if the variable capitalization would change (eg. TokuDB on MariaDB 5.5 => 10.0), the $stats index is forced to have its first char uppercase and the rest lowercase
+   while(@row = $query->fetchrow_array()) { $stats{ucfirst(lc($row[0]))} = $row[1]; }
    $query->finish();
 
    $real_uptime = $stats{'Uptime'};
@@ -474,6 +475,11 @@ sub get_vars
    if($MySQL_version >= 50103)
    {
       $vars{'table_cache'} = $vars{'table_open_cache'};
+   }
+   # log_slow_queries was renamed to slow_query_log in MySQL 5.1.29
+   if($MySQL_version >= 50129)
+   {
+      $vars{'log_slow_queries'} = $vars{'slow_query_log'};
    }
 }
 
@@ -1174,7 +1180,7 @@ sub write_TokuDB
 {
    print "write_TokuDB\n" if $op{debug};
 
-   return if $stats{'Tokudb_CACHETABLE_SIZE_CURRENT'} == 0;
+   return if $stats{'Tokudb_cachetable_size_current'} == 0;
 
    $~ = 'TOKUDB';
    write;
@@ -1499,7 +1505,7 @@ make_short($stats{'Innodb_buffer_pool_pages_flushed'}), t($stats{'Innodb_buffer_
 
 format IB_XTRADB =
   LRU       @>>>>>>>>    @>>>>>/s   %LRU:  @>>>>>
-make_short($stats{'Innodb_buffer_pool_pages_LRU_flushed'}), t($stats{'Innodb_buffer_pool_pages_LRU_flushed'}), perc($stats{'Innodb_buffer_pool_pages_LRU_flushed'}, $stats{'Innodb_buffer_pool_pages_flushed'})
+make_short($stats{'Innodb_buffer_pool_pages_lru_flushed'}), t($stats{'Innodb_buffer_pool_pages_lru_flushed'}), perc($stats{'Innodb_buffer_pool_pages_lru_flushed'}, $stats{'Innodb_buffer_pool_pages_flushed'})
 .
 
 format IB_LOCK =
@@ -1593,11 +1599,11 @@ format TOKUDB =
 
 __ TokuDB ______________________________________________________________
 Cachetable    @>>>>>> of  @>>>>>>  %Usage: @>>>>>
-make_short($stats{Tokudb_CACHETABLE_SIZE_CURRENT}, 1), make_short($vars{tokudb_cache_size}, 1), perc($stats{Tokudb_CACHETABLE_SIZE_CURRENT}, $vars{tokudb_cache_size})
+make_short($stats{Tokudb_cachetable_size_current}, 1), make_short($vars{tokudb_cache_size}, 1), perc($stats{Tokudb_cachetable_size_current}, $vars{tokudb_cache_size})
   Miss        @>>>>>>    @>>>>>/s
-make_short($stats{'Tokudb_CACHETABLE_MISS'}), t($stats{'Tokudb_CACHETABLE_MISS'})
+make_short($stats{'Tokudb_cachetable_miss'}), t($stats{'Tokudb_cachetable_miss'})
   Evictions   @>>>>>>    @>>>>>/s
-make_short($stats{'Tokudb_CACHETABLE_EVICTIONS'}), t($stats{'Tokudb_CACHETABLE_EVICTIONS'})
+make_short($stats{'Tokudb_cachetable_evictions'}), t($stats{'Tokudb_cachetable_evictions'})
 .
 
 format ROWS =
