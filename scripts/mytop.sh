@@ -1017,7 +1017,7 @@ sub GetData()
 
         my $current_time = sprintf "[%02d:%02d:%02d]", $t[2], $t[1], $t[0];
 
-        my $host_width = 50;
+        my $host_width = length("$server $db_version on $config{host}");
         my $up_width   = $width - $host_width - 1;
         Clear() unless $config{batchmode};
         print RESET();
