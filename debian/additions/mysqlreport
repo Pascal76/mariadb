@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria15 Nov 18 2014
+# mysqlreport v3.5-maria16 Jan 05 2015
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
@@ -190,7 +190,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria15 Nov 18 2014
+mysqlreport v3.5-maria16 Jan 05 2015
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
@@ -1147,6 +1147,7 @@ sub write_qcache
    # ergo this method is slightly more reliable
    return if not exists $vars{'query_cache_size'};
    return if $vars{'query_cache_size'} == 0;
+   return if defined($vars{'query_cache_type'}) and $vars{'query_cache_type'} eq 'OFF';
 
    $qc_mem_used = $vars{'query_cache_size'} - $stats{'Qcache_free_memory'};
    $qc_hi_r = sprintf "%.2f", $stats{'Qcache_hits'} / ($stats{'Qcache_inserts'} ||= 1);
