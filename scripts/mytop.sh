@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 #
-# $Id: mytop,v 1.99-maria2 2014/12/21 23:40:36 jweisbuch Exp $
+# $Id: mytop,v 1.99-maria3 2015/02/13 02:12:27 jweisbuch Exp $
 
 =pod
 
@@ -20,7 +20,7 @@ use Socket;
 use List::Util qw(min max);
 use File::Basename;
 
-$main::VERSION = "1.99-maria2";
+$main::VERSION = "1.99-maria3";
 my $path_for_script = dirname($0);
 
 $| = 1;
@@ -326,6 +326,22 @@ foreach (@variables)
             $have_query_cache = 0;
         }
         next;
+    }
+}
+
+my ($has_is_processlist, $has_time_ms, $has_progress);
+$has_is_processlist = $has_time_ms = $has_progress = 0;
+
+## Check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
+$has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
+if ($has_is_processlist == 1)
+    {
+    ## Check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server), if it is the case it will fetch the query time with decimal precision for queries that has been running for less than 10k seconds
+    $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
+    if ($has_time_ms == 1)
+        {
+        ## Check if the server has the STAGE column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB) to retreive query completion informations
+        $has_progress = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'STAGE';")->rows;
     }
 }
 
@@ -1221,24 +1237,17 @@ sub GetData()
     ## Threads
     ##
 
-    my $proc_cmd;
+    my $proc_cmd;  ## Query used to fetch the processlist
     my $time_format = "6d";
-    my $has_progress = 0;
 
-    ## check if the server has the INFORMATION_SCHEMA.PROCESSLIST table for backward compatibility
-    my $has_is_processlist = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST';")->rows;
     if ($has_is_processlist == 1)
         {
-        ## check if the server has the TIME_MS column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB and Percona Server), if it is the case it will fetch the query time with decimal precision for queries that has been running for less than 10k seconds
-        my $has_time_ms = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'TIME_MS';")->rows;
         if ($has_time_ms == 1)
             {
             $time_format = "6.6s";
-            ## check if the server has the STAGE column on the INFORMATION_SCHEMA.PROCESSLIST table (MariaDB) to retreive query completion informations
-            ## to have a computed value of "Progress" like the "SHOW PROCESSLIST" one, you can use : "CASE WHEN Max_Stage < 2 THEN Progress ELSE (Stage-1)/Max_Stage*100+Progress/Max_Stage END AS Progress"
-            $has_progress = Execute("SELECT /*mytop*/ 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'information_schema' AND TABLE_NAME = 'PROCESSLIST' AND COLUMN_NAME = 'STAGE';")->rows;
             if ($has_progress == 1)
             {
+                ## To have a computed value of "Progress" like the "SHOW PROCESSLIST" one, the Progress column of the query must be replaced by : "CASE WHEN Max_Stage < 2 THEN Progress ELSE (Stage-1)/Max_Stage*100+Progress/Max_Stage END AS Progress"
                 $proc_cmd = "SELECT /*mytop*/ Id, User, Host, db, Command, CASE WHEN TIME > 10000 THEN Time ELSE ROUND(TIME_MS/1000, 1) END AS Time, State, Info, Progress, Stage, Max_Stage FROM INFORMATION_SCHEMA.PROCESSLIST WHERE ID != CONNECTION_ID();";
             }
             else
@@ -1256,7 +1265,7 @@ sub GetData()
         $proc_cmd = "SHOW /*mytop*/ FULL PROCESSLIST;";
     }
 
-    ## we specify a minimal value for columns with a dynamic width
+    ## Minimal width values for columns with a dynamic width
     if ($config{usercol_width} < 4) { $config{usercol_width} = 4; }
     if ($config{dbcol_width} < 2)   { $config{dbcol_width}   = 2; }
 
@@ -1265,9 +1274,9 @@ sub GetData()
     my $used = scalar(@sz) + Sum(@sz);
     undef(@sz);
 
-    ## if the terminal width <= 80, the state column will have a width of 6 chars else it will be between 6 and 15 chars depending on the terminal width
+    ## If the terminal width <= 80, the state column will have a width of 6 chars else it will be between 6 and 15 chars depending on the terminal width
     my $state = $width <= 80 ? 6 : int(min(6+($width-80)/3, 15));
-    ## $free = the number of chars between the beginning of the "Query" column and the end of the line
+    ## $free = The number of chars between the beginning of the "Query" column and the end of the line
     my $free = $width - $used - ($state - 6);
     my $format= "%9s %$config{usercol_width}s %15s %$config{dbcol_width}s %6s ";
     if ($has_progress == 1 && !$config{hide_progress}) { $format .= "%5s "; }
@@ -1362,7 +1371,7 @@ sub GetData()
 	$thread->{State}   ||= "";
 	$thread->{Progress} ||= 0;
 
-        ## alter double hyphen comments so they don't break
+        ## Alter double hyphen comments so they don't break
 	## the query when newlines are removed - http://freshmeat.net/users/jerjones
         $thread->{Info} =~ s~\s--(.*)$~ /* $1 */ ~mg;
 
@@ -1370,30 +1379,30 @@ sub GetData()
         ## break EXPLAIN if you try to explain a mangled query.  It
         ## may be re-enabled later as an option.
 
-        ## replace newlines and carriage returns with a space
+        ## Replace newlines and carriage returns with a space
         $thread->{Info} =~ tr/\n\r/ /;
 
-        ## leading space removal
+        ## Leading space removal
         $thread->{Info} =~ s/^\s*//;
 
-        ## strip non printing control symbols
+        ## Strip non printing control symbols
         $thread->{Info} =~ tr/[[:cntrl:]]//;
 
-        ## collpase whitespace
+        ## Collpase whitespace
         $thread->{Info} =~ s/\s+/ /g;
 
-        ## trailing space removal
+        ## Trailing space removal
         $thread->{Info} =~ s/\s$//;
 
-        ## put the first letter of the query uppercase for a better readability with long State strings
+        ## Put the first letter of the query uppercase for a better readability with long State strings
         $thread->{Info} = ucfirst $thread->{Info};
 
-        ## stow it in the cache
+        ## Stow it in the cache
         $qcache{$thread->{Id}}  = $thread->{Info};
         $dbcache{$thread->{Id}} = $thread->{db};
         $ucache{$thread->{Id}}  = $thread->{User};
 
-        ## if we have Progress information and executing a multi-stage query, we show the actual stage and total of stages of the thread at the beginning of the State column
+        ## If Progress information is available and a multi-stage query is running, the actual stage and the total number of stages of the thread are shown at the beginning of the State column
         if ($has_progress == 1 && $thread->{Max_Stage} && $thread->{Max_Stage} > 1)
         {
             $thread->{State} = $thread->{Stage}."/".$thread->{Max_Stage}." ".$thread->{State};
@@ -1513,12 +1522,6 @@ sub GetQPS()
     my $qps = $num - $questions;
     $questions = $num;
     print "$qps\n";
-}
-
-###########################################################################
-
-sub GetQcacheSummary()
-{
 }
 
 ###########################################################################
