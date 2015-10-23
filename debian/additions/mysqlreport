@@ -626,8 +626,10 @@ sub get_MySQL_version
       }
    }
 
-   # e.g.: 5.5.9 will be 50509 and 10.0.5 will be 100005
+   # The major version number is kept as is while the minor version and the revision number are forced to 2 digits
+   # e.g.: 5.5.9 will be 50509, 10.0.5 will be 100005 and 10.1.23 will be 100123
    $MySQL_version = sprintf("%d%02d%02d", $major, $minor, $patch);
+   print "Version $MySQL_version\n" if $op{debug};
 
    # Innodb_ status values were added in 5.0.2
    if($MySQL_version < 50002)
@@ -667,40 +669,45 @@ sub get_MySQL_version
       }
    }
 
-   # MariaDB 5.5.21+ and Percona Server 5.5.30+ use the same thread pool implementation
-   $use_thread_pool = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'thread_handling';", undef)->[0][0];
-   if(defined($use_thread_pool) && $use_thread_pool eq "pool-of-threads") {
-      print "Thread pool is used\n" if $op{debug};
-      $use_thread_pool = 1;
-   } else {
-      $use_thread_pool = 0;
-   }
-
-   $have_binlog_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'log_bin';", undef)->[0][0];
-   if(defined($have_binlog_vals) && $have_binlog_vals eq "ON")
+   if($MySQL_version >= 50000)
    {
-      print "Binary log is activated\n" if $op{debug};
-      $have_binlog_vals = 1;
-   } else {
-      $have_binlog_vals = 0;
-   }
+      # These checks use the 'information_schema' virtual database that has been added on MySQL 5.0
 
-   $have_tokudb_engine = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'TokuDB';", undef)->[0][0];
-   if(defined($have_tokudb_engine) && ($have_tokudb_engine eq "YES" || $have_tokudb_engine eq "DEFAULT"))
-   {
-      print "TokuDB detected\n" if $op{debug};
-      $have_tokudb_engine = 1;
-   } else {
-      $have_tokudb_engine = 0;
-   }
+      # MariaDB 5.5.21+ and Percona Server 5.5.30+ use the same thread pool implementation
+      $use_thread_pool = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'thread_handling';", undef)->[0][0];
+      if(defined($use_thread_pool) && $use_thread_pool eq "pool-of-threads") {
+         print "Thread pool is used\n" if $op{debug};
+         $use_thread_pool = 1;
+      } else {
+         $use_thread_pool = 0;
+      }
 
-   $use_xtradb = $dbh->selectall_arrayref("SELECT 1 FROM INFORMATION_SCHEMA.ENGINES WHERE ENGINE = 'InnoDB' AND COMMENT LIKE 'Percona-XtraDB%';", undef)->[0][0];
-   if(defined($use_xtradb) && $use_xtradb eq "1")
-   {
-      print "XtraDB detected\n" if $op{debug};
-      $use_xtradb = 1;
-   } else {
-      $use_xtradb = 0;
+      $have_binlog_vals = $dbh->selectall_arrayref("SELECT VARIABLE_VALUE FROM information_schema.global_variables WHERE VARIABLE_NAME = 'log_bin';", undef)->[0][0];
+      if(defined($have_binlog_vals) && $have_binlog_vals eq "ON")
+      {
+         print "Binary log is activated\n" if $op{debug};
+         $have_binlog_vals = 1;
+      } else {
+         $have_binlog_vals = 0;
+      }
+
+      $have_tokudb_engine = $dbh->selectall_arrayref("SELECT SUPPORT FROM information_schema.engines WHERE ENGINE = 'TokuDB';", undef)->[0][0];
+      if(defined($have_tokudb_engine) && ($have_tokudb_engine eq "YES" || $have_tokudb_engine eq "DEFAULT"))
+      {
+         print "TokuDB detected\n" if $op{debug};
+         $have_tokudb_engine = 1;
+      } else {
+         $have_tokudb_engine = 0;
+      }
+
+      $use_xtradb = $dbh->selectall_arrayref("SELECT 1 FROM INFORMATION_SCHEMA.ENGINES WHERE ENGINE = 'InnoDB' AND COMMENT LIKE 'Percona-XtraDB%';", undef)->[0][0];
+      if(defined($use_xtradb) && $use_xtradb eq "1")
+      {
+         print "XtraDB detected\n" if $op{debug};
+         $use_xtradb = 1;
+      } else {
+         $use_xtradb = 0;
+      }
    }
 }
 
