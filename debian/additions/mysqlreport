@@ -1,11 +1,11 @@
 #!/usr/bin/perl -w
 
-# mysqlreport v3.5-maria16 Jan 05 2015
+# mysqlreport v4.0 Oct 23 2015
 # http://hackmysql.com/mysqlreport
 
 # mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 # Copyright 2006-2008 Daniel Nichter
-# Copyright 2012-2014 Jean Weisbuch
+# Copyright 2012-2015 Jean Weisbuch
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -190,7 +190,7 @@ exit;
 sub show_help_and_exit
 {
    print <<"HELP";
-mysqlreport v3.5-maria16 Jan 05 2015
+mysqlreport v4.0 Oct 23 2015
 mysqlreport makes an easy-to-read report of important MySQL/MariaDB status values.
 
 Command line options (abbreviations work):
